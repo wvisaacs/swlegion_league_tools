@@ -7,7 +7,13 @@ public class MatchingGenerator : IMatchingGenerator
     private const int HistoryPenalty = 1000;
     private const int MaxRandomFactor = 10;
 
-    public MonthlyMatchings Generate(League league, int podSize, MatchHistory history, string month, int? seed = null)
+    public MonthlyMatchings Generate(
+        League league, 
+        int podSize, 
+        MatchHistory history, 
+        string month, 
+        List<List<string>>? fixedPods = null,
+        int? seed = null)
     {
         if (podSize < 2)
             throw new ArgumentException("Pod size must be at least 2", nameof(podSize));
@@ -16,13 +22,34 @@ public class MatchingGenerator : IMatchingGenerator
             throw new ArgumentException("League must have at least 2 players");
 
         var random = seed.HasValue ? new Random(seed.Value) : new Random();
-        var players = league.Players.ToList();
+        fixedPods ??= new List<List<string>>();
 
-        // Shuffle players randomly
-        Shuffle(players, random);
+        // Validate fixed pods
+        var usedPlayerIds = ValidateFixedPods(fixedPods, league);
 
-        // Distribute players into pods
-        var pods = DistributeIntoPods(players, podSize);
+        // Create fixed pods first
+        var pods = new List<Pod>();
+        foreach (var fixedPod in fixedPods)
+        {
+            pods.Add(new Pod
+            {
+                PlayerIds = fixedPod.ToList(),
+                IsOverflow = fixedPod.Count > podSize
+            });
+        }
+
+        // Get remaining players (not in fixed pods)
+        var remainingPlayers = league.Players
+            .Where(p => !usedPlayerIds.Contains(p.Id))
+            .ToList();
+
+        // Shuffle and distribute remaining players
+        if (remainingPlayers.Count > 0)
+        {
+            Shuffle(remainingPlayers, random);
+            var additionalPods = DistributeIntoPods(remainingPlayers, podSize);
+            pods.AddRange(additionalPods);
+        }
 
         // Generate matches for each pod
         var podId = 1;
@@ -40,6 +67,31 @@ public class MatchingGenerator : IMatchingGenerator
             GeneratedAt = DateTime.UtcNow,
             Pods = pods
         };
+    }
+
+    /// <summary>
+    /// Validates fixed pods and returns the set of player IDs used in them.
+    /// </summary>
+    private HashSet<string> ValidateFixedPods(List<List<string>> fixedPods, League league)
+    {
+        var allPlayerIds = league.Players.Select(p => p.Id).ToHashSet();
+        var usedIds = new HashSet<string>();
+
+        foreach (var pod in fixedPods)
+        {
+            if (pod.Count < 2)
+                throw new ArgumentException($"Fixed pod must have at least 2 players, got {pod.Count}");
+
+            foreach (var id in pod)
+            {
+                if (!allPlayerIds.Contains(id))
+                    throw new ArgumentException($"Player ID '{id}' not found in league");
+                if (!usedIds.Add(id))
+                    throw new ArgumentException($"Player ID '{id}' appears in multiple fixed pods");
+            }
+        }
+
+        return usedIds;
     }
 
     private static void Shuffle<T>(List<T> list, Random random)

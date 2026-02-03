@@ -7,7 +7,7 @@ public class MatchingGenerator : IMatchingGenerator
     private const int HistoryPenalty = 1000;
     private const int MaxRandomFactor = 10;
 
-    public MonthlyMatchings Generate(League league, int podSize, MatchHistory history, string month, int? seed = null)
+    public MonthlyMatchings Generate(League league, int podSize, MatchHistory history, string month, int? seed = null, List<List<string>>? fixedPods = null)
     {
         if (podSize < 2)
             throw new ArgumentException("Pod size must be at least 2", nameof(podSize));
@@ -17,12 +17,37 @@ public class MatchingGenerator : IMatchingGenerator
 
         var random = seed.HasValue ? new Random(seed.Value) : new Random();
         var players = league.Players.ToList();
+        var playerLookup = players.ToDictionary(p => p.Id);
 
-        // Shuffle players randomly
-        Shuffle(players, random);
+        // Handle fixed pods first
+        var pods = new List<Pod>();
+        var assignedPlayerIds = new HashSet<string>();
 
-        // Distribute players into pods
-        var pods = DistributeIntoPods(players, podSize);
+        if (fixedPods != null)
+        {
+            foreach (var fixedPodIds in fixedPods)
+            {
+                var pod = new Pod { IsOverflow = fixedPodIds.Count > podSize, IsFixed = true };
+                foreach (var playerId in fixedPodIds)
+                {
+                    if (!playerLookup.ContainsKey(playerId))
+                        throw new ArgumentException($"Fixed pod contains unknown player ID: {playerId}");
+                    pod.PlayerIds.Add(playerId);
+                    assignedPlayerIds.Add(playerId);
+                }
+                pods.Add(pod);
+            }
+        }
+
+        // Get remaining unassigned players
+        var remainingPlayers = players.Where(p => !assignedPlayerIds.Contains(p.Id)).ToList();
+
+        // Shuffle remaining players randomly
+        Shuffle(remainingPlayers, random);
+
+        // Distribute remaining players into pods
+        var additionalPods = DistributeIntoPods(remainingPlayers, podSize);
+        pods.AddRange(additionalPods);
 
         // Generate matches for each pod
         var podId = 1;

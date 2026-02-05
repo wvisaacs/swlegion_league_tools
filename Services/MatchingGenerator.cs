@@ -34,7 +34,8 @@ public class MatchingGenerator : IMatchingGenerator
             pods.Add(new Pod
             {
                 PlayerIds = fixedPod.ToList(),
-                IsOverflow = fixedPod.Count > podSize
+                IsOverflow = fixedPod.Count > podSize,
+                IsFixed = true
             });
         }
 

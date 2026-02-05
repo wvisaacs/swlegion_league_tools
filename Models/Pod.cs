@@ -10,6 +10,9 @@ public class Pod
     [JsonPropertyName("isOverflow")]
     public bool IsOverflow { get; set; }
 
+    [JsonPropertyName("isFixed")]
+    public bool IsFixed { get; set; }
+
     [JsonPropertyName("playerIds")]
     public List<string> PlayerIds { get; set; } = new();
 

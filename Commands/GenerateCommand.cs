@@ -59,7 +59,7 @@ public class GenerateCommand : Command
                 storage.SaveMatchings(matchings);
                 historyService.RecordMatches(eventId, matchings);
 
-                PrintMatchings(matchings, league, fixedPods.Count);
+                PrintMatchings(matchings, league);
 
                 Console.WriteLine();
                 Console.WriteLine($"Matchings saved to: {storage.GetDataDirectory()}");
@@ -113,19 +113,18 @@ public class GenerateCommand : Command
         return fixedPods;
     }
 
-    private static void PrintMatchings(LeagueTools.Models.MonthlyMatchings matchings, LeagueTools.Models.League league, int fixedPodCount)
+    private static void PrintMatchings(LeagueTools.Models.MonthlyMatchings matchings, LeagueTools.Models.League league)
     {
         var playerLookup = league.Players.ToDictionary(p => p.Id);
 
         Console.WriteLine($"Generated {matchings.Pods.Count} pods with {matchings.TotalMatches} total matches:");
         Console.WriteLine();
 
-        var podIndex = 0;
         foreach (var pod in matchings.Pods)
         {
             var overflow = pod.IsOverflow ? " (overflow)" : "";
-            var isFixed = podIndex < fixedPodCount ? " [FIXED]" : "";
-            Console.WriteLine($"Pod {pod.PodId}{overflow}{isFixed} - {pod.Size} players:");
+            var fixedLabel = pod.IsFixed ? " [FIXED]" : "";
+            Console.WriteLine($"Pod {pod.PodId}{overflow}{fixedLabel} - {pod.Size} players:");
 
             foreach (var playerId in pod.PlayerIds)
             {
@@ -141,7 +140,6 @@ public class GenerateCommand : Command
                 Console.WriteLine($"    - {match}");
             }
             Console.WriteLine();
-            podIndex++;
         }
     }
 }

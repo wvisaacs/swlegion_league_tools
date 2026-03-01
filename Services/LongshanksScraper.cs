@@ -151,6 +151,53 @@ public class LongshanksScraper : ILeagueScraper
             }
         }
 
+        // Try to extract standings (wins/losses) — best-effort, gracefully falls back to null
+        var standingsJson = await page.EvaluateAsync<string>(@"() => {
+            const standings = {};
+            // Longshanks renders standings rows with .id_number inside a parent row element
+            // Try table rows first, then generic row containers
+            const rows = document.querySelectorAll('tr, .league_standing, .standing_row, .result_row');
+            rows.forEach(row => {
+                const idEl = row.querySelector('.id_number');
+                if (!idEl) return;
+                const idMatch = idEl.textContent.trim().match(/#(\d+)/);
+                if (!idMatch) return;
+                const id = idMatch[1];
+
+                // Look for wins/losses by class name patterns
+                const wEl = row.querySelector('[class*=""win""], .wins, .w_count');
+                const lEl = row.querySelector('[class*=""loss""], .losses, .l_count');
+                if (wEl || lEl) {
+                    standings[id] = {
+                        wins: wEl ? (parseInt(wEl.textContent.trim()) || 0) : 0,
+                        losses: lEl ? (parseInt(lEl.textContent.trim()) || 0) : 0
+                    };
+                }
+            });
+            return JSON.stringify(standings);
+        }");
+
+        if (!string.IsNullOrEmpty(standingsJson))
+        {
+            try
+            {
+                var standingsOptions = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var standingsMap = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, StandingsData>>(standingsJson, standingsOptions);
+                if (standingsMap != null)
+                {
+                    foreach (var player in players)
+                    {
+                        if (standingsMap.TryGetValue(player.Id, out var s))
+                        {
+                            player.Wins = s.Wins;
+                            player.Losses = s.Losses;
+                        }
+                    }
+                }
+            }
+            catch { /* standings scraping is best-effort */ }
+        }
+
         return new League
         {
             EventId = eventId,
@@ -166,5 +213,11 @@ public class LongshanksScraper : ILeagueScraper
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
         public string? Faction { get; set; }
+    }
+
+    private class StandingsData
+    {
+        public int Wins { get; set; }
+        public int Losses { get; set; }
     }
 }

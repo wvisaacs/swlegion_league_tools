@@ -44,11 +44,12 @@ public class MatchingGenerator : IMatchingGenerator
             .Where(p => !usedPlayerIds.Contains(p.Id))
             .ToList();
 
-        // Shuffle and distribute remaining players
+        // Distribute remaining players using history-aware, standings-based assignment
         if (remainingPlayers.Count > 0)
         {
+            // Shuffle first so ties in record get random ordering (preserves seed determinism)
             Shuffle(remainingPlayers, random);
-            var additionalPods = DistributeIntoPods(remainingPlayers, podSize);
+            var additionalPods = DistributeIntoPodsAware(remainingPlayers, podSize, history);
             pods.AddRange(additionalPods);
         }
 
@@ -105,77 +106,91 @@ public class MatchingGenerator : IMatchingGenerator
     }
 
     /// <summary>
-    /// Distributes players into pods, minimizing size variance.
-    /// Example: 14 players with pod size 3 → 2 pods of 3 + 2 pods of 4
+    /// Computes pod sizes for a given player count and target size.
+    /// Returns an array of sizes, where sizes > targetSize are overflow pods.
+    /// Example: 14 players, pod 3 → [3, 3, 4, 4]
     /// </summary>
-    private List<Pod> DistributeIntoPods(List<Player> players, int targetSize)
+    private static int[] ComputePodSizes(int playerCount, int targetSize)
     {
-        var pods = new List<Pod>();
-        var playerCount = players.Count;
-
         if (playerCount <= targetSize + 1)
-        {
-            // Everyone in one pod (possibly overflow)
-            pods.Add(new Pod
-            {
-                PlayerIds = players.Select(p => p.Id).ToList(),
-                IsOverflow = playerCount > targetSize
-            });
-            return pods;
-        }
+            return new[] { playerCount };
 
         var fullPods = playerCount / targetSize;
         var remainder = playerCount % targetSize;
+        var overflowCount = remainder;
+        var standardCount = fullPods - remainder;
 
-        // Distribute remainder by making some pods size+1
-        // This minimizes variance
-        var overflowPodCount = remainder;
-        var standardPodCount = fullPods - remainder;
-
-        // Edge case: if we'd have negative standard pods, adjust
-        if (standardPodCount < 0)
+        if (standardCount < 0)
         {
-            overflowPodCount = fullPods;
-            standardPodCount = 0;
+            overflowCount = fullPods;
+            standardCount = 0;
         }
 
-        var playerIndex = 0;
+        var sizes = new List<int>(standardCount + overflowCount);
+        for (int i = 0; i < standardCount; i++) sizes.Add(targetSize);
+        for (int i = 0; i < overflowCount; i++) sizes.Add(targetSize + 1);
 
-        // Create standard pods (size = targetSize)
-        for (int i = 0; i < standardPodCount; i++)
+        // Handle any leftover players (edge case from integer math)
+        var assigned = sizes.Sum();
+        if (assigned < playerCount && sizes.Count > 0)
+            sizes[^1] += playerCount - assigned;
+        else if (sizes.Count == 0)
+            sizes.Add(playerCount);
+
+        return sizes.ToArray();
+    }
+
+    /// <summary>
+    /// Distributes players into pods using standings-based seeding and history-aware assignment.
+    /// Players are sorted by record (wins desc, losses asc) so same-record players end up together.
+    /// Within the same record, the pre-shuffle order is preserved (providing randomness).
+    /// Each player is greedily assigned to the pod that minimizes repeat pairings from history.
+    /// </summary>
+    private static List<Pod> DistributeIntoPodsAware(List<Player> players, int targetSize, MatchHistory history)
+    {
+        var podSizes = ComputePodSizes(players.Count, targetSize);
+        var podCount = podSizes.Length;
+
+        // Sort by record (descending wins, ascending losses); shuffle order is stable tiebreaker
+        var sorted = players
+            .OrderByDescending(p => p.Wins ?? 0)
+            .ThenBy(p => p.Losses ?? 0)
+            .ToList();
+
+        // Initialize pod buckets
+        var buckets = Enumerable.Range(0, podCount).Select(_ => new List<string>()).ToArray();
+
+        // Greedy assignment: for each player in standings order, find the pod that
+        // minimizes the number of historical opponents already assigned to it.
+        // Tie-break by current bucket size (prefer evenly filling pods).
+        foreach (var player in sorted)
         {
-            var pod = new Pod { IsOverflow = false };
-            for (int j = 0; j < targetSize && playerIndex < playerCount; j++)
+            var bestPod = -1;
+            var bestScore = int.MaxValue;
+
+            for (int i = 0; i < podCount; i++)
             {
-                pod.PlayerIds.Add(players[playerIndex++].Id);
+                if (buckets[i].Count >= podSizes[i]) continue;
+
+                var conflicts = buckets[i].Count(id => history.HavePlayed(player.Id, id));
+                // Heavy penalty per conflict; secondary: prefer less-full pods
+                var score = conflicts * HistoryPenalty + buckets[i].Count;
+
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    bestPod = i;
+                }
             }
-            pods.Add(pod);
+
+            buckets[bestPod >= 0 ? bestPod : 0].Add(player.Id);
         }
 
-        // Create overflow pods (size = targetSize + 1)
-        for (int i = 0; i < overflowPodCount; i++)
+        return buckets.Select((bucket, i) => new Pod
         {
-            var pod = new Pod { IsOverflow = true };
-            var podTargetSize = targetSize + 1;
-            for (int j = 0; j < podTargetSize && playerIndex < playerCount; j++)
-            {
-                pod.PlayerIds.Add(players[playerIndex++].Id);
-            }
-            pods.Add(pod);
-        }
-
-        // Handle any remaining players (shouldn't happen with correct math)
-        if (playerIndex < playerCount && pods.Count > 0)
-        {
-            var lastPod = pods.Last();
-            while (playerIndex < playerCount)
-            {
-                lastPod.PlayerIds.Add(players[playerIndex++].Id);
-                lastPod.IsOverflow = true;
-            }
-        }
-
-        return pods;
+            PlayerIds = bucket,
+            IsOverflow = podSizes[i] > targetSize
+        }).ToList();
     }
 
     /// <summary>
@@ -307,3 +322,4 @@ public class MatchingGenerator : IMatchingGenerator
         Player2Name = p2.DisplayName
     };
 }
+

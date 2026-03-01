@@ -19,6 +19,12 @@ public class Player
     [JsonPropertyName("location")]
     public string? Location { get; set; }
 
+    [JsonPropertyName("wins")]
+    public int? Wins { get; set; }
+
+    [JsonPropertyName("losses")]
+    public int? Losses { get; set; }
+
     public string DisplayName => $"{Name} #{Id}";
 
     public override string ToString() => DisplayName;

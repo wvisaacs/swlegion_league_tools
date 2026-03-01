@@ -8,5 +8,6 @@ rootCommand.AddCommand(new GenerateCommand());
 rootCommand.AddCommand(new ViewCommand());
 rootCommand.AddCommand(new HistoryCommand());
 rootCommand.AddCommand(new SwapCommand());
+rootCommand.AddCommand(new ParseListCommand());
 
 return await rootCommand.InvokeAsync(args);

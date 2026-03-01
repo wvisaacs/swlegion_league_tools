@@ -23,6 +23,24 @@ public static class TestLeagueFactory
         };
     }
 
+    public static League CreateLeagueWithStandings(params (string name, int wins, int losses)[] players)
+    {
+        return new League
+        {
+            EventId = "test-event",
+            Name = "Test League",
+            Url = "https://test.com/event/test-event",
+            Players = players.Select((p, i) => new Player
+            {
+                Id = (i + 1).ToString(),
+                Name = p.name,
+                Wins = p.wins,
+                Losses = p.losses
+            }).ToList(),
+            LastUpdated = DateTime.UtcNow
+        };
+    }
+
     public static League CreateLeagueWithNames(params string[] names)
     {
         return new League
